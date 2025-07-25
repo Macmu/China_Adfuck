@@ -1,13 +1,25 @@
 /***
- * 修正后的脚本：解决GeoIP数据库解析错误问题
+ * Clash Verge Rev 全局扩展脚本（精简版）
+ * 精简说明：仅保留香港、台湾、日本、美国和其它地区分类，功能分组仅保留AD广告、GF翻墙
  */
 
+/**
+ * 整个脚本的总开关
+ * true = 启用
+ * false = 禁用
+ */
 const enable = true
 
+/**
+ * 分流规则配置，仅保留广告过滤
+ */
 const ruleOptions = {
   ads: true, // 广告过滤
 }
 
+/**
+ * 前置规则
+ */
 const rules = [
   'PROCESS-NAME,SunloginClient,DIRECT',
   'PROCESS-NAME,SunloginClient.exe,DIRECT',
@@ -15,6 +27,9 @@ const rules = [
   'PROCESS-NAME,AnyDesk.exe,DIRECT',
 ]
 
+/**
+ * 地区配置，仅保留香港、台湾、日本、美国
+ */
 const regionOptions = {
   excludeHighPercentage: true,
   regions: [
@@ -25,7 +40,7 @@ const regionOptions = {
       icon: 'https://fastly.jsdelivr.net/gh/Koolson/Qure/IconSet/Color/Hong_Kong.png',
     },
     {
-      name: 'TW台湾省',
+      name: 'TW台湾省,
       regex: /台湾|🇼🇸|tw|taiwan|tai wan/i,
       ratioLimit: 2,
       icon: 'https://fastly.jsdelivr.net/gh/Koolson/Qure/IconSet/Color/China.png',
@@ -45,6 +60,9 @@ const regionOptions = {
   ],
 }
 
+/**
+ * DNS配置
+ */
 const defaultDNS = ['tls://223.5.5.5']
 const chinaDNS = ['119.29.29.29', '223.5.5.5']
 const foreignDNS = ['https://120.53.53.53/dns-query', 'https://223.5.5.5/dns-query']
@@ -73,9 +91,9 @@ const ruleProviderCommon = {
   type: 'http',
   format: 'yaml',
   interval: 86400,
-  behavior: 'domain'  // 补充缺失的behavior字段
 }
 
+// 代理组通用配置
 const groupBaseOption = {
   interval: 300,
   timeout: 3000,
@@ -87,6 +105,7 @@ const groupBaseOption = {
 
 const ruleProviders = new Map()
 
+// 程序入口
 function main(config) {
   const proxyCount = config?.proxies?.length ?? 0
   const proxyProviderCount =
@@ -100,6 +119,7 @@ function main(config) {
   let regionProxyGroups = []
   let otherProxyGroups = config.proxies.map(b => b.name)
 
+  // 基础配置
   config['allow-lan'] = true
   config['bind-address'] = '*'
   config['mode'] = 'rule'
@@ -112,21 +132,12 @@ function main(config) {
   config['tcp-concurrent'] = true
   config['keep-alive-interval'] = 1800
   config['find-process-mode'] = 'strict'
-  
-  // 修正1：更新geodata配置，确保兼容性
-  config['geodata-mode'] = false; // 禁用新版geodata模式，避免格式冲突
-  config['geodata-loader'] = 'standard'; // 使用标准加载器
-  config['geo-auto-update'] = true;
-  config['geo-update-interval'] = 24;
+  config['geodata-mode'] = true
+  config['geodata-loader'] = 'memconservative'
+  config['geo-auto-update'] = true
+  config['geo-update-interval'] = 24
 
-  // 修正2：更换为兼容的geoip数据库地址（解决proto解析错误）
-  config['geox-url'] = {
-    geoip: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/geoip@release/geoip.dat', // 兼容旧格式的数据库
-    geosite: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat',
-    mmdb: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/geoip@release/Country.mmdb',
-    asn: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/geoip@release/GeoLite2-ASN.mmdb',
-  };
-
+  // 域名嗅探配置
   config['sniffer'] = {
     enable: true,
     'force-dns-mapping': true,
@@ -145,16 +156,27 @@ function main(config) {
     ],
   }
 
+  // NTP配置
   config['ntp'] = {
     enable: true,
     'write-to-system': false,
     server: 'cn.ntp.org.cn',
   }
 
+  // 地理位置数据库配置
+  config['geox-url'] = {
+    geoip: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat',
+    geosite: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat',
+    mmdb: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country-lite.mmdb',
+    asn: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb',
+  }
+
+  // 总开关关闭时不处理策略组
   if (!enable) {
     return config
   }
 
+  // 处理地区代理组
   regionOptions.regions.forEach(region => {
     let proxies = config.proxies
       .filter(a => {
@@ -177,22 +199,27 @@ function main(config) {
     otherProxyGroups = otherProxyGroups.filter(x => !proxies.includes(x))
   })
 
+  // 提取地区代理组名称
   const proxyGroupsRegionNames = regionProxyGroups.map(value => value.name)
+
+  // 添加"其它节点"分组（如果有剩余节点）
   const hasOtherNodes = otherProxyGroups.length > 0
   if (hasOtherNodes) {
     proxyGroupsRegionNames.push('其它节点')
   }
 
-  config['proxy-groups'] = [
+  // 核心代理组配置：先定义GF翻墙
+  const coreGroups = [
     {
       ...groupBaseOption,
-      name: '翻墙',
+      name: 'GF翻墙',
       type: 'select',
       proxies: [...proxyGroupsRegionNames, '直连'],
       icon: 'https://fastly.jsdelivr.net/gh/Koolson/Qure/IconSet/Color/Proxy.png',
     }
   ]
 
+  // 添加直连代理
   config.proxies = config?.proxies || []
   config.proxies.push({
     name: '直连',
@@ -200,37 +227,42 @@ function main(config) {
     udp: true,
   })
 
+  // 广告过滤配置（AD广告）
+  let adGroup = null
   if (ruleOptions.ads) {
     rules.push(
-      'GEOSITE,category-ads-all,广告过滤',
-      'RULE-SET,adblockmihomo,广告过滤'
+      'GEOSITE,category-ads-all,AD广告',
+      'RULE-SET,adblockmihomo,AD广告'
     )
     ruleProviders.set('adblockmihomo', {
       ...ruleProviderCommon,
+      behavior: 'domain',
       format: 'mrs',
       url: 'https://github.com/217heidai/adblockfilters/raw/refs/heads/main/rules/adblockmihomo.mrs',
       path: './ruleset/adblockfilters/adblockmihomo.mrs',
     })
-    config['proxy-groups'].push({
+    adGroup = {
       ...groupBaseOption,
-      name: '广告过滤',
+      name: 'AD广告',
       type: 'select',
-      proxies: ['REJECT', '直连', '翻墙'],
+      proxies: ['REJECT', '直连', 'GF翻墙'],
       icon: 'https://fastly.jsdelivr.net/gh/Koolson/Qure/IconSet/Color/Advertising.png',
-    })
+    }
   }
 
-  // 修正3：调整GEOIP规则顺序，确保数据库加载后再解析
+  // 核心规则配置
   rules.push(
     'GEOSITE,private,DIRECT',
     'GEOIP,private,DIRECT,no-resolve',
     'GEOSITE,cn,直连',
-    'GEOIP,cn,直连,no-resolve', // 此规则现在会使用兼容的数据库解析
-    'MATCH,翻墙'
+    'GEOIP,cn,直连,no-resolve',
+    'MATCH,GF翻墙'
   )
 
-  config['proxy-groups'] = config['proxy-groups'].concat(regionProxyGroups)
-
+  // 构建最终代理组数组：确保AD广告在倒数第二位
+  config['proxy-groups'] = [...coreGroups, ...regionProxyGroups]
+  
+  // 添加其它节点分组（如果有）
   if (hasOtherNodes) {
     config['proxy-groups'].push({
       ...groupBaseOption,
@@ -240,7 +272,15 @@ function main(config) {
       icon: 'https://fastly.jsdelivr.net/gh/Koolson/Qure/IconSet/Color/World_Map.png',
     })
   }
+  
+  // 插入AD广告到倒数第二位
+  if (adGroup) {
+    // 如果有节点则插入到倒数第二位，否则插入到最后一位
+    const insertPosition = hasOtherNodes ? config['proxy-groups'].length - 1 : config['proxy-groups'].length
+    config['proxy-groups'].splice(insertPosition, 0, adGroup)
+  }
 
+  // 应用规则配置
   config['rules'] = rules
   config['rule-providers'] = Object.fromEntries(ruleProviders)
 
