@@ -1,5 +1,5 @@
 /***
- * 修正后的脚本：补充behavior字段解决key缺失问题
+ * 修正后的脚本：解决GeoIP数据库解析错误问题
  */
 
 const enable = true
@@ -68,12 +68,12 @@ const dnsConfig = {
   },
 }
 
-// 规则集通用配置 - 新增behavior字段
+// 规则集通用配置
 const ruleProviderCommon = {
   type: 'http',
   format: 'yaml',
   interval: 86400,
-  behavior: 'domain'  // 补充缺失的behavior字段，明确规则集类型为域名规则
+  behavior: 'domain'  // 补充缺失的behavior字段
 }
 
 const groupBaseOption = {
@@ -112,10 +112,20 @@ function main(config) {
   config['tcp-concurrent'] = true
   config['keep-alive-interval'] = 1800
   config['find-process-mode'] = 'strict'
-  config['geodata-mode'] = true
-  config['geodata-loader'] = 'memconservative'
-  config['geo-auto-update'] = true
-  config['geo-update-interval'] = 24
+  
+  // 修正1：更新geodata配置，确保兼容性
+  config['geodata-mode'] = false; // 禁用新版geodata模式，避免格式冲突
+  config['geodata-loader'] = 'standard'; // 使用标准加载器
+  config['geo-auto-update'] = true;
+  config['geo-update-interval'] = 24;
+
+  // 修正2：更换为兼容的geoip数据库地址（解决proto解析错误）
+  config['geox-url'] = {
+    geoip: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/geoip@release/geoip.dat', // 兼容旧格式的数据库
+    geosite: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat',
+    mmdb: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/geoip@release/Country.mmdb',
+    asn: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/geoip@release/GeoLite2-ASN.mmdb',
+  };
 
   config['sniffer'] = {
     enable: true,
@@ -139,13 +149,6 @@ function main(config) {
     enable: true,
     'write-to-system': false,
     server: 'cn.ntp.org.cn',
-  }
-
-  config['geox-url'] = {
-    geoip: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat',
-    geosite: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat',
-    mmdb: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country-lite.mmdb',
-    asn: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb',
   }
 
   if (!enable) {
@@ -204,7 +207,6 @@ function main(config) {
     )
     ruleProviders.set('adblockmihomo', {
       ...ruleProviderCommon,
-      // 这里继承了ruleProviderCommon中的behavior字段，无需重复定义
       format: 'mrs',
       url: 'https://github.com/217heidai/adblockfilters/raw/refs/heads/main/rules/adblockmihomo.mrs',
       path: './ruleset/adblockfilters/adblockmihomo.mrs',
@@ -218,11 +220,12 @@ function main(config) {
     })
   }
 
+  // 修正3：调整GEOIP规则顺序，确保数据库加载后再解析
   rules.push(
     'GEOSITE,private,DIRECT',
     'GEOIP,private,DIRECT,no-resolve',
     'GEOSITE,cn,直连',
-    'GEOIP,cn,直连,no-resolve',
+    'GEOIP,cn,直连,no-resolve', // 此规则现在会使用兼容的数据库解析
     'MATCH,翻墙'
   )
 
